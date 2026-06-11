@@ -14,5 +14,10 @@ app.listen(PORT, () => {
   console.log(`   - POST   /api/jobs`);
   console.log(`   - PUT    /api/jobs/:id`);
   console.log(`   - DELETE /api/jobs/:id`);
+  console.log(`   - GET    /api/ai-search`);
+  console.log(`   - POST   /api/ai-search`);
+  console.log(`   - GET    /api/ai-search/status/:searchId`);
+  console.log(`   - GET    /api/profile`);
+  console.log(`   - POST   /api/profile`);
   console.log(`===================================================`);
 });

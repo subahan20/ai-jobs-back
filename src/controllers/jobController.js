@@ -1,4 +1,6 @@
 import { supabase } from '../config/supabase.js';
+import { JOB_UPDATE_FIELDS, pickAllowedFields, sanitizeSearchTerm } from '../utils/fieldWhitelist.js';
+import { getRecentCutoffDate, resolvePostedAt, toIsoTimestamp } from '../utils/postedDateUtils.js';
 
 // Pre-defined logo colors to assign to job postings if not specified
 const LOGO_COLORS = [
@@ -37,7 +39,8 @@ export const getJobs = async (req, res, next) => {
       sort_by = 'created_at',
       sort_order = 'desc',
       page = 1,
-      limit = 20
+      limit = 20,
+      recent_only,
     } = req.query;
 
     // Build the base select query
@@ -47,8 +50,11 @@ export const getJobs = async (req, res, next) => {
     // Note: Supabase supports full-text search or ilike. Since we are using standard tables, 
     // we use a logical OR filter with ilike for flexible matching.
     if (search) {
-      const cleanSearch = `%${search.trim()}%`;
-      query = query.or(`title.ilike.${cleanSearch},company.ilike.${cleanSearch},description.ilike.${cleanSearch}`);
+      const cleanSearch = sanitizeSearchTerm(search);
+      if (cleanSearch) {
+        const pattern = `%${cleanSearch}%`;
+        query = query.or(`title.ilike.${pattern},company.ilike.${pattern},description.ilike.${pattern}`);
+      }
     }
 
     // 2. Exact match filters
@@ -60,6 +66,11 @@ export const getJobs = async (req, res, next) => {
     }
     if (location) {
       query = query.ilike('location', `%${location}%`);
+    }
+
+    if (recent_only === 'true' || recent_only === '1') {
+      const cutoff = getRecentCutoffDate().toISOString();
+      query = query.or(`posted_at.gte.${cutoff},and(posted_at.is.null,created_at.gte.${cutoff})`);
     }
 
     // 3. Sorting (validates column parameters to prevent SQL injection)
@@ -147,7 +158,15 @@ export const createJob = async (req, res, next) => {
       location,
       description,
       posted_time,
-      url
+      posted_at,
+      posted_date,
+      url,
+      status,
+      employment_type,
+      category,
+      remote_on_site,
+      publish_state,
+      posted_by
     } = req.body;
 
     const jobId = `manual-${Date.now()}`;
@@ -164,6 +183,11 @@ export const createJob = async (req, res, next) => {
 
     // Default logo theme color if omitted
     const chosenColor = logo_color || LOGO_COLORS[Math.floor(Math.random() * LOGO_COLORS.length)];
+    const resolvedPostedAt = resolvePostedAt({
+      postedAt: posted_at || posted_date,
+      postedTime: posted_time,
+      createdAt: new Date(),
+    });
 
     const newJob = {
       id: jobId,
@@ -179,7 +203,14 @@ export const createJob = async (req, res, next) => {
       location: location ? location.trim() : 'Remote',
       description: description ? description.trim() : 'No description provided.',
       posted_time: posted_time ? posted_time.trim() : 'Just now',
-      url: url ? url.trim() : ''
+      posted_at: toIsoTimestamp(resolvedPostedAt) || new Date().toISOString(),
+      url: url ? url.trim() : '',
+      status: status || 'Active',
+      employment_type: employment_type || 'Full-time',
+      category: category || 'Engineering',
+      remote_on_site: remote_on_site || 'Remote',
+      publish_state: publish_state || 'Published',
+      posted_by: posted_by || 'Admin'
     };
 
     const { data, error } = await supabase
@@ -206,10 +237,9 @@ export const createJob = async (req, res, next) => {
 export const updateJob = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
+    const updates = pickAllowedFields(req.body, JOB_UPDATE_FIELDS);
 
-    // First check if the job exists
-    const { data: existingJob, error: checkErr } = await supabase
+    const { error: checkErr } = await supabase
       .from('jobs')
       .select('id')
       .eq('id', id)

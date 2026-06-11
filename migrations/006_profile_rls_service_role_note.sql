@@ -1,0 +1,7 @@
+-- Backend profile writes use the user's JWT (createUserSupabase) so RLS auth.uid() matches.
+-- For admin/AI tables, set SUPABASE_SERVICE_ROLE_KEY on the backend to bypass RLS.
+--
+-- Required backend env:
+--   SUPABASE_URL
+--   SUPABASE_ANON_KEY  (or SUPABASE_KEY = anon key)
+--   SUPABASE_SERVICE_ROLE_KEY  (recommended for jobs + ai_search_jobs writes)

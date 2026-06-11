@@ -6,24 +6,19 @@ import {
   updateJob,
   deleteJob
 } from '../controllers/jobController.js';
-import { triggerSearch, checkSearchStatus } from '../controllers/searchController.js';
 import { validateJob } from '../middlewares/validation.js';
 import { requireAuth } from '../middlewares/auth.js';
+import { requireAdmin } from '../middlewares/requireAdmin.js';
 
 const router = Router();
 
-// Background Search Scraper endpoints
-router.post('/search', triggerSearch);
-router.get('/search/status/:id', checkSearchStatus);
-
-// Routes for the Jobs resource
 router.route('/')
   .get(getJobs)
-  .post(requireAuth, validateJob, createJob);
+  .post(requireAuth, requireAdmin, validateJob, createJob);
 
 router.route('/:id')
   .get(getJobById)
-  .put(requireAuth, validateJob, updateJob)
-  .delete(requireAuth, deleteJob);
+  .put(requireAuth, requireAdmin, validateJob, updateJob)
+  .delete(requireAuth, requireAdmin, deleteJob);
 
 export default router;

@@ -1,4 +1,8 @@
 import { supabase } from '../config/supabase.js';
+import { isAdminEmail } from '../utils/adminAccess.js';
+
+const adminOAuthRedirect =
+  process.env.ADMIN_OAUTH_REDIRECT_URL || 'http://localhost:3001/auth/callback';
 
 /**
  * Handle Admin signup via email & password
@@ -8,6 +12,13 @@ export const signUp = async (req, res, next) => {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ success: false, message: 'Email and password are required.' });
+    }
+
+    if (!isAdminEmail(email)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Registration is restricted to authorized admin emails.',
+      });
     }
 
     const { data, error } = await supabase.auth.signUp({
@@ -40,6 +51,13 @@ export const login = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Email and password are required.' });
     }
 
+    if (!isAdminEmail(email)) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account is not authorized for admin access.',
+      });
+    }
+
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -68,7 +86,7 @@ export const getGoogleUrl = async (req, res, next) => {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: 'http://localhost:3001/auth/callback',
+        redirectTo: adminOAuthRedirect,
         queryParams: {
           access_type: 'offline',
           prompt: 'consent'
@@ -103,6 +121,13 @@ export const exchangeCallback = async (req, res, next) => {
 
     if (error) {
       return res.status(400).json({ success: false, message: error.message });
+    }
+
+    if (!isAdminEmail(data.user?.email)) {
+      return res.status(403).json({
+        success: false,
+        message: 'This Google account is not authorized for admin access.',
+      });
     }
 
     res.status(200).json({

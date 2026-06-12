@@ -5,7 +5,9 @@ import jobRoutes from './routes/jobRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
 import aiSearchRoutes from './routes/aiSearchRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import { errorHandler } from './middlewares/errorHandler.js';
+import { initCronJobs } from './cron/jobScheduler.js';
 
 const app = express();
 
@@ -24,6 +26,10 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/ai-search', aiSearchRoutes);
+app.use('/api/admin', adminRoutes);
+
+// Initialize Background Cron Jobs
+initCronJobs();
 
 // Fallback Route for Undefined Paths
 app.use((req, res, next) => {

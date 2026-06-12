@@ -62,7 +62,11 @@ export const getJobs = async (req, res, next) => {
       query = query.eq('experience_level', experience_level);
     }
     if (source) {
-      query = query.eq('source', source);
+      if (source === 'Admin Portal' || source === 'Admin') {
+        query = query.in('source', ['Admin', 'Admin Portal']);
+      } else {
+        query = query.eq('source', source);
+      }
     }
     if (location) {
       query = query.ilike('location', `%${location}%`);
@@ -81,7 +85,7 @@ export const getJobs = async (req, res, next) => {
 
     // 4. Pagination
     const pageNum = Math.max(1, parseInt(page, 10));
-    const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10))); // Cap maximum items per request at 100
+    const limitNum = Math.max(1, Math.min(1000, parseInt(limit, 10))); // Cap maximum items per request at 1000
     const fromIndex = (pageNum - 1) * limitNum;
     const toIndex = fromIndex + limitNum - 1;
     query = query.range(fromIndex, toIndex);

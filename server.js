@@ -3,6 +3,8 @@ import app from './src/server.js';
 
 dotenv.config();
 
+// Triggering nodemon restart to load new RapidAPI key
+console.log('Backend server starting and loading environment variables...');
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {

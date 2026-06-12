@@ -27,7 +27,8 @@ const LOGO_COLORS = [
 
 const GENERIC_SEARCH_URL_PATTERNS = [
   /linkedin\.com\/jobs\/search/i,
-  /naukri\.com\/jobs-in-/i,
+  /naukri\.com\/(?!job-listings)/i, // STRICT: Naukri URLs MUST contain 'job-listings'
+  /naukri\.com\/.*-jobs(-in-)?/i, // Catch any trailing '-jobs' patterns just in case
   /indeed\.com\/jobs\?/i,
   /glassdoor\.co\.in\/Job\//i,
   /foundit\.in\/srp/i,
@@ -267,7 +268,7 @@ function mapPlatformJob(item, platform, ts, idx) {
 // ==========================================
 // 4. MATCH SCORING
 // ==========================================
-function calculateMatchScore(job, role, userSkills, experienceYears) {
+export function calculateMatchScore(job, role, userSkills, experienceYears) {
   let score = 0;
   const titleLower = (job.title || '').toLowerCase();
   const descLower = (job.description || '').toLowerCase();
@@ -277,18 +278,53 @@ function calculateMatchScore(job, role, userSkills, experienceYears) {
   if (userSkills.length > 0) {
     userSkills.forEach(skill => {
       const clean = skill.trim().toLowerCase();
-      if (clean && (titleLower.includes(clean) || descLower.includes(clean) || reqSkills.some(s => s.includes(clean)))) {
-        skillsHitCount++;
+      if (clean) {
+        const safeSkill = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`\\b${safeSkill}\\b`, 'i');
+        if (regex.test(titleLower) || regex.test(descLower) || reqSkills.some(s => regex.test(s) || s.includes(clean))) {
+          skillsHitCount++;
+        }
       }
     });
+    
+    const isDescriptionMissing = !job.description || job.description.length < 100 || job.description.includes('View the link');
+    
+    // STRICT SKILL MATCHING: If user provided skills, at least one MUST match, 
+    // unless the description is missing entirely (in which case we rely strictly on the title)
+    if (skillsHitCount === 0) {
+       if (!isDescriptionMissing) {
+         return 0; // Full description available, but no skills matched. Junk.
+       }
+       
+       // If description is missing, the TITLE must strictly contain the exact role name (not just 'developer')
+       const exactRoleMatch = titleLower.includes(role.toLowerCase());
+       if (!exactRoleMatch) {
+         return 0; 
+       }
+    }
+    
     score += (skillsHitCount / userSkills.length) * 45;
   } else {
     score += 45;
   }
 
-  const roleWords = role.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-  const roleHit = roleWords.length === 0 || roleWords.some(w => titleLower.includes(w));
-  if (roleHit) score += 30;
+  const normalizeStr = str => (str || '').toLowerCase().replace(/[- ]/g, '');
+  
+  const roleNorm = normalizeStr(role);
+  const titleNorm = normalizeStr(job.title);
+  const categoryNorm = normalizeStr(job.roleSearched);
+  
+  const roleClean = roleNorm.replace('developer', '').replace('engineer', '');
+  
+  const exactRoleMatch = titleNorm.includes(roleNorm) || (roleClean.length > 2 && titleNorm.includes(roleClean));
+  const categoryMatch = categoryNorm && (categoryNorm.includes(roleNorm) || roleNorm.includes(categoryNorm));
+  
+  if (exactRoleMatch || categoryMatch) {
+    score += 30;
+  } else {
+    // STRICT ROLE MATCH: If the role doesn't match the title or category, discard the job entirely.
+    return 0;
+  }
 
   if (experienceYears >= 0) {
     const minExp = job.minExperienceYears || 0;
@@ -347,10 +383,52 @@ export async function discoverJobsFromPlatforms({ role, skills = '', experience 
       
       if (!rawResults.length) return [];
       
-      log(`Groq: Extracting jobs from ${rawResults.length} ${platform.name} results...`);
-      const extracted = attachSourceMetadata(await extractJobsFromResults(rawResults, role, platform.name), rawResults);
+      const resultUrls = rawResults.map(r => r.url).filter(Boolean);
+      let existingJobs = [];
       
-      return extracted.map((item, idx) => mapPlatformJob(item, platform, ts, idx)).filter(Boolean);
+      // Check if we already have these URLs in the database
+      if (resultUrls.length > 0) {
+        const { data } = await supabase
+          .from('ai_search_jobs')
+          .select('*')
+          .in('url', resultUrls);
+        if (data) existingJobs = data;
+      }
+      
+      const existingUrls = existingJobs.map(j => j.url);
+      const newResults = rawResults.filter(r => r.url && !existingUrls.includes(r.url));
+      
+      let newMappedJobs = [];
+      
+      if (newResults.length > 0) {
+        log(`Groq: Extracting jobs from ${newResults.length} NEW ${platform.name} results...`);
+        const extracted = attachSourceMetadata(await extractJobsFromResults(newResults, role, platform.name), newResults);
+        newMappedJobs = extracted.map((item, idx) => mapPlatformJob(item, platform, ts, idx)).filter(Boolean);
+      } else {
+        log(`${platform.name}: No new jobs found. Skipping Groq API hit completely.`);
+      }
+      
+      // Convert existing DB jobs back to the expected memory format
+      const reusedJobs = existingJobs.map(dbJob => ({
+        id: dbJob.id,
+        platform: dbJob.platform,
+        source: dbJob.source,
+        title: dbJob.title,
+        url: dbJob.url,
+        applyUrl: dbJob.url,
+        postedAt: dbJob.posted_at,
+        postedTime: dbJob.posted_time,
+        logoColor: dbJob.logo_color,
+        company: dbJob.company,
+        location: dbJob.location,
+        salary: dbJob.salary,
+        description: dbJob.description,
+        minExperienceYears: dbJob.min_experience_years,
+        experienceLevel: dbJob.experience_level,
+        skillsRequired: dbJob.skills_required ? dbJob.skills_required.split(',') : [],
+      }));
+      
+      return [...reusedJobs, ...newMappedJobs];
     })
   );
 
